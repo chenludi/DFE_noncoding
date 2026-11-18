@@ -1,0 +1,135 @@
+// This is the same as v5 except mutation rate is lower
+// Run this script as follows:
+// slim -d seed=<seed> -d out_path=<out_path> -d sim_annots=<path_to_sim_annots> sim_recomb=<path_to_sim_recomb> sim_for_chenlu.slim
+initialize() {
+	initializeSLiMOptions(keepPedigrees=F);
+
+	if (exists("slimgui")) {
+		defineConstant("seed", 12345);
+		defineConstant("sim_annots", '/Users/swetha/work/lohmueller_lab/stuff_for_chenlu/bgnc_simulations_v5/sim_files/sim_1_annots.csv');
+		defineConstant("sim_recomb", '/Users/swetha/work/lohmueller_lab/stuff_for_chenlu/bgnc_simulations_v5/sim_files/sim_1_recomb.csv');
+		defineConstant("out_path", "/Users/swetha/work/lohmueller_lab/stuff_for_chenlu/bgnc_simulations_v5/output/test_script");
+	}
+
+	// command line constants
+	setSeed(seed);
+
+	initializeMutationRate(1e-8);
+
+	//draw deleterious mutations from Kim 2017 human DFE
+	initializeMutationType("m1", 0.5, "g", -0.01314833, 0.186);
+
+	// neutral mutations - a separate type for each genomic element type to calculate sfs
+	initializeMutationType("m2", 0.5, "f", 0.0); // for exon
+	initializeMutationType("m3", 0.5, "f", 0.0); // for bkgd
+	initializeMutationType("m4", 0.5, "f", 0.0); // for qui
+	initializeMutationType("m5", 0.5, "f", 0.0); // for cnc
+
+	// coding regions
+	// ratio of different deleterious mutation types taken from Kim 2017 DFE (sum to 100 below)
+	// assume ratio of deleterious to neutral muts of 2.31:1
+	// giving 100/2.31=43.3 for neutral mutations below
+	initializeGenomicElementType("g1", c(m1, m2), c(100, 43.3));
+
+	// background non-coding with neutral only
+    initializeGenomicElementType("g2", c(m3), 1);
+
+    // conserved non-coding with neutral only
+    initializeGenomicElementType("g3", c(m5), 1);
+
+    // quiescent with neutral only
+    initializeGenomicElementType("g4", c(m4), 1);
+
+
+	// create chromosome
+	annots = readCSV(sim_annots);
+	for (row in 0:(annots.nrow - 1)) {
+		start = annots.subset(row, 'start');
+		end = annots.subset(row, 'end');
+		elem_type = annots.subset(row, 'type');
+		if (elem_type == 'exon') {
+			initializeGenomicElement(g1, start, end);
+		} else if (elem_type == 'bkgd') {
+			initializeGenomicElement(g2, start, end);
+		} else if (elem_type == 'cnc') {
+			initializeGenomicElement(g3, start, end);
+		} else if (elem_type == 'qui') {
+            initializeGenomicElement(g4, start, end);
+        } else {
+            stop(paste("Invalid region:", elem_type));
+		}
+	}
+
+	// set recombination rate
+	recomb = readCSV(sim_recomb);
+	rates = recomb.getValue('rate');
+	ends = recomb.getValue('end');
+	initializeRecombinationRate(rates, ends);
+
+}
+
+/// Demography:
+/// constant sized population
+1 early() {
+	catn("first epoch");
+	sim.addSubpop("p1", 10000);
+}
+
+100000 early() {
+    catn("end of simulation");
+	sim.simulationFinished();
+}
+
+// output sfs
+100000 late() {
+
+	sample_sizes = c(10, 100, 1000);
+
+	for (ss in sample_sizes) {
+
+		genomes = sample(p1.genomes, ss);
+
+		m1_muts = unique(genomes.mutationsOfType(m1));
+		m1_counts = genomes.mutationCountsInGenomes(mutations=m1_muts);
+		m2_muts = unique(genomes.mutationsOfType(m2));
+		m2_counts = genomes.mutationCountsInGenomes(mutations=m2_muts);
+		m3_muts = unique(genomes.mutationsOfType(m3));
+		m3_counts = genomes.mutationCountsInGenomes(mutations=m3_muts);
+		m4_muts = unique(genomes.mutationsOfType(m4));
+		m4_counts = genomes.mutationCountsInGenomes(mutations=m4_muts);
+		m5_muts = unique(genomes.mutationsOfType(m5));
+		m5_counts = genomes.mutationCountsInGenomes(mutations=m5_muts);
+
+		m1_sfs = c();
+		m2_sfs = c();
+		m3_sfs = c();
+		m4_sfs = c();
+		m5_sfs = c();
+
+		for (i in 1:ss) {
+			m1_sfs = c(m1_sfs, sum(m1_counts==i));
+			m2_sfs = c(m2_sfs, sum(m2_counts==i));
+			m3_sfs = c(m3_sfs, sum(m3_counts==i));
+			m4_sfs = c(m4_sfs, sum(m4_counts==i));
+			m5_sfs = c(m5_sfs, sum(m5_counts==i));
+		}
+
+		file_content = paste(m1_sfs, sep="\n");
+		writeFile(paste0(out_path, "/", "sfs_m1_" + ss, "_ss.csv"), file_content);
+
+		file_content = paste(m2_sfs, sep="\n");
+		writeFile(paste0(out_path, "/", "sfs_m2_" + ss, "_ss.csv"), file_content);
+
+		file_content = paste(m3_sfs, sep="\n");
+		writeFile(paste0(out_path, "/", "sfs_m3_" + ss, "_ss.csv"), file_content);
+
+		file_content = paste(m4_sfs, sep="\n");
+		writeFile(paste0(out_path, "/", "sfs_m4_" + ss, "_ss.csv"), file_content);
+
+		file_content = paste(m5_sfs, sep="\n");
+		writeFile(paste0(out_path, "/", "sfs_m5_" + ss, "_ss.csv"), file_content);
+
+	}
+
+    sim.outputFull(paste0(out_path, "/", "full_sim.out"), binary = T);
+}

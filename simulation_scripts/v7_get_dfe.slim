@@ -1,0 +1,98 @@
+initialize() {
+	initializeSLiMOptions(keepPedigrees=F);
+	
+	// command line constants
+	
+	initializeMutationRate(1e-8);
+	
+	//draw deleterious mutations from Kim 2017 human DFE
+	initializeMutationType("m1", 0.5, "g", -0.01314833, 0.186);
+	
+	// neutral mutations - a separate type for each genomic element type to calculate sfs
+	initializeMutationType("m2", 0.5, "f", 0.0); // for exon
+	initializeMutationType("m3", 0.5, "f", 0.0); // for bkgd
+	initializeMutationType("m4", 0.5, "f", 0.0); // for qui
+	
+	// non-coding region mutation types
+	initializeMutationType("m5", 0.5, "g", -0.001271766, 0.11649883816477835); // for bkgd
+	initializeMutationType("m6", 0.5, "g", -0.001271766, 0.11649883816477835); // for cnc
+	
+	// coding regions
+	// ratio of different deleterious mutation types taken from Kim 2017 DFE (sum to 100 below)
+	// assume ratio of deleterious to neutral muts of 2.31:1
+	// giving 100/2.31=43.3 for neutral mutations below
+	initializeGenomicElementType("g1", c(m1, m2), c(100, 43.3));
+	
+	// background non-coding with 20% deleterious and 80% neutral
+	initializeGenomicElementType("g2", c(m5, m3), c(20, 80));
+	
+	// conserved non-coding with deleterious only
+	initializeGenomicElementType("g3", c(m6), 1);
+	
+	// quiescent with neutral only
+	initializeGenomicElementType("g4", c(m4), 1);
+	
+	initializeGenomicElement(g1, 0, 20000000);
+	
+	// set recombination rate
+	initializeRecombinationRate(1e-8);
+
+}
+
+1 early() {
+	
+	if (exists("slimgui")) {
+		defineConstant("out_path", "/Users/swetha/work/lohmueller_lab/stuff_for_chenlu/bgnc_simulations_v2/output/v7");
+		setwd(paste0(out_path, "/sim_", 1));
+		sim.readFromPopulationFile("full_sim.out");
+	
+	} else {
+		defineConstant("out_path", "/u/home/s/sweram/project-klohmuel/stuff_for_chenlu/bgnc_simulations_v2/output/v7");
+		
+		
+		for (sim_num in 1:20) {
+			setwd(paste0(out_path, "/sim_", sim_num));
+			sim.readFromPopulationFile("full_sim.out");
+			
+			mut_type = paste(sim.mutations.mutationType.id, sep="\n");
+			mut_sel = paste(sim.mutations.selectionCoeff, sep="\n");
+			mut_tick = paste(sim.mutations.originTick, sep="\n");
+			
+			writeFile(paste0(out_path, "/sim_", sim_num, "/mut_type.csv"), mut_type);
+			writeFile(paste0(out_path, "/sim_", sim_num, "/mut_sel.csv"), mut_sel);
+			writeFile(paste0(out_path, "/sim_", sim_num, "/mut_tick.csv"), mut_tick);
+			
+			//			subs = sim.substitutions;
+			//			if (length(subs) == 0) {
+			//				catn(paste0("sim_", sim_num, " has no substitutions"));
+			//			}
+			
+			file_name = paste0(out_path, "/sim_", sim_num, "/fitness.csv");
+			writeFile(file_name, "bkgd,cnc,nc,nsyn,cached", append=F);
+			sim.recalculateFitness(NULL);
+			
+			for (ind in 0:9999) {
+				ind_genomes = p1.individuals[ind].genomes;
+				
+				bkgd_muts = c(ind_genomes.mutationsOfType(m3), ind_genomes.mutationsOfType(m5));
+				cnc_muts = ind_genomes.mutationsOfType(m6);
+				nc_muts = c(bkgd_muts, cnc_muts);
+				nsyn_muts = ind_genomes.mutationsOfType(m1);
+				
+				bkgd_w = product(1 + 0.5 * bkgd_muts.selectionCoeff);
+				cnc_w = product(1 + 0.5 * cnc_muts.selectionCoeff);
+				nc_w = product(1 + 0.5 * nc_muts.selectionCoeff);
+				nsyn_w = product(1 + 0.5 * nsyn_muts.selectionCoeff);
+				cached_w = p1.cachedFitness(ind);
+				
+				w_vec = c(bkgd_w, cnc_w, nc_w, nsyn_w, cached_w);
+				writeFile(file_name, paste(w_vec, sep=","), append=T);
+			
+			}
+		
+		
+		}
+	}
+
+
+}
